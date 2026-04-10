@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>車両損傷AI解析システム</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Hiragino Sans", "Yu Gothic UI", sans-serif;
+      background: #f0f4f8;
+      color: #1a202c;
+      min-height: 100vh;
+    }
+
+    /* ヘッダー */
+    header {
+      background: linear-gradient(135deg, #1e3a5f 0%, #2d6a9f 100%);
+      color: #fff;
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    header svg { flex-shrink: 0; }
+    header h1 { font-size: 1.4rem; font-weight: 700; letter-spacing: 0.04em; }
+    header p  { font-size: 0.8rem; opacity: 0.8; margin-top: 2px; }
+
+    /* メインコンテンツ */
+    main {
+      max-width: 960px;
+      margin: 32px auto;
+      padding: 0 16px 64px;
+    }
+
+    /* カード共通 */
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.06);
+      padding: 28px 32px;
+      margin-bottom: 24px;
+    }
+
+    /* ---- アップロードゾーン ---- */
+    .upload-zone {
+      border: 2px dashed #a0aec0;
+      border-radius: 10px;
+      padding: 48px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      background: #f7fafc;
+      position: relative;
+    }
+    .upload-zone:hover, .upload-zone.drag-over {
+      border-color: #2d6a9f;
+      background: #ebf4ff;
+    }
+    .upload-zone input[type=file] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    }
+    .upload-zone .icon { font-size: 3rem; margin-bottom: 12px; }
+    .upload-zone h2   { font-size: 1.1rem; color: #2d3748; margin-bottom: 6px; }
+    .upload-zone p    { font-size: 0.82rem; color: #718096; }
+
+    /* プレビュー */
+    #preview-area {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .preview-item {
+      position: relative;
+      width: 100px;
+      height: 100px;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 2px solid #e2e8f0;
+    }
+    .preview-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .preview-item .remove-btn {
+      position: absolute;
+      top: 3px; right: 3px;
+      width: 20px; height: 20px;
+      background: rgba(0,0,0,0.55);
+      color: #fff;
+      border: none;
+      border-radius: 50%;
+      font-size: 11px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      line-height: 1;
+    }
+    .preview-item .remove-btn:hover { background: #e53e3e; }
+    .preview-item .filename {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      background: rgba(0,0,0,0.5);
+      color: #fff;
+      font-size: 9px;
+      padding: 2px 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* 解析ボタン */
+    #analyze-btn {
+      display: block;
+      width: 100%;
+      margin-top: 20px;
+      padding: 14px;
+      background: linear-gradient(135deg, #2b6cb0, #2d6a9f);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity .2s, transform .1s;
+      letter-spacing: 0.05em;
+    }
+    #analyze-btn:hover:not(:disabled) { opacity: .9; transform: translateY(-1px); }
+    #analyze-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* ローディング */
+    #loading {
+      display: none;
+      text-align: center;
+      padding: 40px 0;
+    }
+    .spinner {
+      width: 52px; height: 52px;
+      border: 5px solid #e2e8f0;
+      border-top-color: #2d6a9f;
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+      margin: 0 auto 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading p { color: #4a5568; font-size: 0.9rem; }
+
+    /* エラー表示 */
+    #error-box {
+      display: none;
+      background: #fff5f5;
+      border: 1px solid #feb2b2;
+      border-radius: 8px;
+      padding: 16px 20px;
+      color: #c53030;
+      font-size: 0.9rem;
+      margin-top: 16px;
+    }
+
+    /* ---- 解析結果 ---- */
+    #results { display: none; }
+
+    .result-summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .stat-card {
+      background: linear-gradient(135deg, #ebf4ff, #f0f8ff);
+      border: 1px solid #bee3f8;
+      border-radius: 10px;
+      padding: 16px;
+      text-align: center;
+    }
+    .stat-card .value { font-size: 2rem; font-weight: 800; color: #2b6cb0; }
+    .stat-card .label { font-size: 0.75rem; color: #4a5568; margin-top: 4px; }
+
+    /* 損傷パーツカード */
+    .parts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+    }
+    .part-card {
+      border-radius: 10px;
+      border: 1px solid #e2e8f0;
+      overflow: hidden;
+      transition: box-shadow .2s;
+    }
+    .part-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.1); }
+
+    .part-card-header {
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .part-card-header h3 { font-size: 0.95rem; font-weight: 700; }
+    .severity-badge {
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    /* 重大度カラー */
+    .sev-軽微  { background: #c6f6d5; color: #276749; }
+    .sev-中程度 { background: #feebc8; color: #7b341e; }
+    .sev-重大  { background: #fed7d7; color: #9b2c2c; }
+    .sev-不明  { background: #e2e8f0; color: #4a5568; }
+
+    .header-軽微  { background: #f0fff4; border-bottom: 3px solid #48bb78; }
+    .header-中程度 { background: #fffaf0; border-bottom: 3px solid #ed8936; }
+    .header-重大  { background: #fff5f5; border-bottom: 3px solid #fc8181; }
+    .header-不明  { background: #f7fafc; border-bottom: 3px solid #a0aec0; }
+
+    .part-card-body {
+      padding: 12px 16px;
+      background: #fff;
+    }
+    .part-detail-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.83rem;
+      padding: 4px 0;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .part-detail-row:last-child { border-bottom: none; }
+    .part-detail-row .dt { color: #718096; }
+    .part-detail-row .dd { font-weight: 600; color: #2d3748; text-align: right; }
+
+    .confidence-bar {
+      height: 4px;
+      background: #e2e8f0;
+      border-radius: 2px;
+      margin-top: 10px;
+      overflow: hidden;
+    }
+    .confidence-bar-fill {
+      height: 100%;
+      border-radius: 2px;
+      background: linear-gradient(90deg, #48bb78, #2d6a9f);
+      transition: width .6s ease;
+    }
+    .confidence-label {
+      font-size: 0.72rem;
+      color: #a0aec0;
+      text-align: right;
+      margin-top: 3px;
+    }
+
+    /* 特記事項 */
+    .notes-box {
+      background: #fffde7;
+      border: 1px solid #f6e05e;
+      border-radius: 8px;
+      padding: 14px 18px;
+      font-size: 0.88rem;
+      color: #744210;
+      line-height: 1.6;
+      margin-top: 4px;
+    }
+    .notes-box::before { content: "📝 "; }
+
+    h2.section-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #2d3748;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #e2e8f0;
+    }
+
+    /* フッター */
+    footer {
+      text-align: center;
+      font-size: 0.75rem;
+      color: #a0aec0;
+      padding: 24px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+    <rect width="36" height="36" rx="8" fill="rgba(255,255,255,0.15)"/>
+    <path d="M8 22l3-8h14l3 8H8z" fill="white" opacity="0.9"/>
+    <circle cx="11" cy="24" r="2.5" fill="white"/>
+    <circle cx="25" cy="24" r="2.5" fill="white"/>
+    <path d="M6 22h24" stroke="white" stroke-width="1.5"/>
+  </svg>
+  <div>
+    <h1>車両損傷AI解析システム</h1>
+    <p>Claude Vision AI による車両損傷の自動解析・見積支援ツール</p>
+  </div>
+</header>
+
+<main>
+
+  <!-- アップロードセクション -->
+  <div class="card">
+    <div class="upload-zone" id="upload-zone">
+      <input type="file" id="file-input" accept=".jpg,.jpeg,.png,.gif,.webp" multiple />
+      <div class="icon">📷</div>
+      <h2>車両損傷写真をドラッグ＆ドロップ</h2>
+      <p>またはクリックしてファイルを選択（JPG / PNG / WEBP）<br>最大10枚まで同時解析可能</p>
+    </div>
+
+    <div id="preview-area"></div>
+
+    <button id="analyze-btn" disabled>🔍 AI解析を開始する</button>
+
+    <div id="error-box"></div>
+  </div>
+
+  <!-- ローディング -->
+  <div id="loading" class="card">
+    <div class="spinner"></div>
+    <p id="loading-msg">Claude AIが車両損傷を解析中です...<br>しばらくお待ちください</p>
+  </div>
+
+  <!-- 解析結果 -->
+  <div id="results">
+    <div class="card">
+      <h2 class="section-title">解析結果サマリー</h2>
+      <div class="result-summary" id="summary-stats"></div>
+    </div>
+
+    <div class="card" id="parts-section" style="display:none">
+      <h2 class="section-title">損傷部位の詳細</h2>
+      <div class="parts-grid" id="parts-grid"></div>
+    </div>
+
+    <div class="card" id="notes-section" style="display:none">
+      <h2 class="section-title">特記事項</h2>
+      <div class="notes-box" id="notes-content"></div>
+    </div>
+  </div>
+
+</main>
+
+<footer>Powered by Claude Opus 4.6 — 本システムの結果は参考値です。最終的な判断は専門技術者による確認をお願いします。</footer>
+
+<script>
+  const uploadZone  = document.getElementById('upload-zone');
+  const fileInput   = document.getElementById('file-input');
+  const previewArea = document.getElementById('preview-area');
+  const analyzeBtn  = document.getElementById('analyze-btn');
+  const errorBox    = document.getElementById('error-box');
+  const loading     = document.getElementById('loading');
+  const results     = document.getElementById('results');
+
+  let selectedFiles = []; // File オブジェクトの配列
+
+  // ドラッグ&ドロップ
+  uploadZone.addEventListener('dragover', e => {
+    e.preventDefault();
+    uploadZone.classList.add('drag-over');
+  });
+  uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+  uploadZone.addEventListener('drop', e => {
+    e.preventDefault();
+    uploadZone.classList.remove('drag-over');
+    addFiles(Array.from(e.dataTransfer.files));
+  });
+
+  fileInput.addEventListener('change', () => {
+    addFiles(Array.from(fileInput.files));
+    fileInput.value = ''; // 同じファイルを再選択できるようリセット
+  });
+
+  function addFiles(files) {
+    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    files.forEach(f => {
+      if (!allowed.includes(f.type)) return;
+      if (selectedFiles.length >= 10) return;
+      if (selectedFiles.find(s => s.name === f.name && s.size === f.size)) return;
+      selectedFiles.push(f);
+    });
+    renderPreviews();
+  }
+
+  function renderPreviews() {
+    previewArea.innerHTML = '';
+    selectedFiles.forEach((file, idx) => {
+      const item = document.createElement('div');
+      item.className = 'preview-item';
+
+      const img = document.createElement('img');
+      img.src = URL.createObjectURL(file);
+      img.alt = file.name;
+
+      const btn = document.createElement('button');
+      btn.className = 'remove-btn';
+      btn.textContent = '✕';
+      btn.title = '削除';
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        selectedFiles.splice(idx, 1);
+        renderPreviews();
+      });
+
+      const fname = document.createElement('div');
+      fname.className = 'filename';
+      fname.textContent = file.name;
+
+      item.append(img, btn, fname);
+      previewArea.appendChild(item);
+    });
+    analyzeBtn.disabled = selectedFiles.length === 0;
+  }
+
+  // 解析実行
+  analyzeBtn.addEventListener('click', async () => {
+    if (selectedFiles.length === 0) return;
+    hideError();
+    showLoading(true);
+    results.style.display = 'none';
+    analyzeBtn.disabled = true;
+
+    const formData = new FormData();
+    selectedFiles.forEach(f => formData.append('files', f));
+
+    try {
+      const resp = await fetch('/analyze', { method: 'POST', body: formData });
+      const data = await resp.json();
+
+      if (!resp.ok) {
+        throw new Error(data.detail || `サーバーエラー (${resp.status})`);
+      }
+
+      renderResults(data);
+    } catch (err) {
+      showError(err.message || '解析中にエラーが発生しました');
+    } finally {
+      showLoading(false);
+      analyzeBtn.disabled = false;
+    }
+  });
+
+  function showLoading(flag) {
+    loading.style.display = flag ? 'block' : 'none';
+  }
+
+  function showError(msg) {
+    errorBox.textContent = '⚠️ ' + msg;
+    errorBox.style.display = 'block';
+  }
+
+  function hideError() {
+    errorBox.style.display = 'none';
+    errorBox.textContent = '';
+  }
+
+  function renderResults(data) {
+    const parts = data.damaged_parts || [];
+    const totalHours = data.total_estimated_hours ?? 0;
+    const notes = data.notes || '';
+
+    // サマリー
+    const sevCount = { 軽微: 0, 中程度: 0, 重大: 0 };
+    parts.forEach(p => { if (p.severity in sevCount) sevCount[p.severity]++; });
+
+    const stats = document.getElementById('summary-stats');
+    stats.innerHTML = `
+      <div class="stat-card">
+        <div class="value">${parts.length}</div>
+        <div class="label">損傷部位数</div>
+      </div>
+      <div class="stat-card">
+        <div class="value" style="color:#276749">${sevCount['軽微']}</div>
+        <div class="label">軽微</div>
+      </div>
+      <div class="stat-card">
+        <div class="value" style="color:#7b341e">${sevCount['中程度']}</div>
+        <div class="label">中程度</div>
+      </div>
+      <div class="stat-card">
+        <div class="value" style="color:#9b2c2c">${sevCount['重大']}</div>
+        <div class="label">重大</div>
+      </div>
+      <div class="stat-card">
+        <div class="value">${Number(totalHours).toFixed(1)}</div>
+        <div class="label">推定作業時間 (h)</div>
+      </div>
+    `;
+
+    // 損傷部位カード
+    const partsSection = document.getElementById('parts-section');
+    const partsGrid = document.getElementById('parts-grid');
+    if (parts.length > 0) {
+      partsGrid.innerHTML = '';
+      parts.forEach(part => {
+        const sev = part.severity || '不明';
+        const conf = Math.round((part.confidence ?? 0) * 100);
+        const card = document.createElement('div');
+        card.className = 'part-card';
+        card.innerHTML = `
+          <div class="part-card-header header-${sev}">
+            <h3>${esc(part.part_name || '不明部位')}</h3>
+            <span class="severity-badge sev-${sev}">${esc(sev)}</span>
+          </div>
+          <div class="part-card-body">
+            <div class="part-detail-row">
+              <span class="dt">損傷種別</span>
+              <span class="dd">${esc(part.damage_type || '-')}</span>
+            </div>
+            <div class="part-detail-row">
+              <span class="dt">修理方法</span>
+              <span class="dd">${esc(part.repair_method || '-')}</span>
+            </div>
+            <div class="part-detail-row">
+              <span class="dt">推定作業時間</span>
+              <span class="dd">${part.estimated_work_hours ?? '-'} h</span>
+            </div>
+            <div class="confidence-bar">
+              <div class="confidence-bar-fill" style="width:${conf}%"></div>
+            </div>
+            <div class="confidence-label">判定信頼度: ${conf}%</div>
+          </div>
+        `;
+        partsGrid.appendChild(card);
+      });
+      partsSection.style.display = 'block';
+    } else {
+      partsSection.style.display = 'none';
+    }
+
+    // 特記事項
+    const notesSection = document.getElementById('notes-section');
+    const notesContent = document.getElementById('notes-content');
+    if (notes) {
+      notesContent.textContent = notes;
+      notesSection.style.display = 'block';
+    } else {
+      notesSection.style.display = 'none';
+    }
+
+    results.style.display = 'block';
+    results.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function esc(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+</script>
+
+</body>
+</html>
